@@ -3,7 +3,9 @@ package io.socket.thread;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -34,6 +36,31 @@ public class EventThread extends Thread {
 
     private EventThread(Runnable runnable) {
         super(runnable);
+    }
+
+    public static void shutdown(long time, TimeUnit units) throws InterruptedException {
+      synchronized (EventThread.class) {
+        if (service != null) {
+          // Disable new tasks from being submitted
+          service.shutdown();
+
+          try {
+            // Wait a while for existing tasks to terminate
+            if (!service.awaitTermination(time, units)) {
+              service.shutdownNow(); // Cancel currently executing tasks
+              // Wait a while for tasks to respond to being cancelled
+              if (!service.awaitTermination(time, units)) {
+            	  logger.log(Level.SEVERE, "Executor did not terminate");
+              }
+            }
+          } catch (InterruptedException ex) {
+            // (Re-)Cancel if current thread also interrupted
+            service.shutdownNow();
+            // Preserve interrupt status
+            Thread.currentThread().interrupt();
+          }
+        }
+      }
     }
 
     /**
@@ -78,6 +105,8 @@ public class EventThread extends Thread {
             public void run() {
                 try {
                     task.run();
+                } catch (RejectedExecutionException t) {
+                    logger.log(Level.SEVERE, "Task rejected", t);
                 } catch (Throwable t) {
                     logger.log(Level.SEVERE, "Task threw exception", t);
                     throw t;
